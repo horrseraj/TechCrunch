@@ -6,12 +6,15 @@
     "configurations": [
         {
             "name": "Python: Current File",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-s","taiwan usa china", "-f", "json"] 
+            "args": ["-s","Submit a guest column to Extra Crunch (and TechCrunch)", "-f", "json"] ,
+            "env": {
+                "DUPEFILTER_DEBUG": "0"
+            }
         }
     ]
 }

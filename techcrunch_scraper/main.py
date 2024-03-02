@@ -7,7 +7,7 @@ import shutil
 import logging
 
 from techcrunch_scraper.spiders.tech_spider import TechSpiderSpider
-from models import SearchKey, SearchResult, Category, ScheduleResult, Author, Article, ArticleAuthor
+from models import SearchKey, SearchResult, Category, Tag, Author, Article, ArticleAuthor, ArticleTag, SearchResultArticle
 from database_manager import DatabaseManager
 import local_settings
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
         os.makedirs(path)
 
         database_manager.create_tables(
-            models=[SearchKey, SearchResult, Category, ScheduleResult, Author, Article, ArticleAuthor])
+            models=[SearchKey, SearchResult, Category, Tag, Author, Article, ArticleAuthor, ArticleTag, SearchResultArticle])
 
         run_spider(args.key, args.format, path)
 
