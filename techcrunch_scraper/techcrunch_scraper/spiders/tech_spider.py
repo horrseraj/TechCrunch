@@ -1,6 +1,8 @@
 import scrapy
 from typing import Any, Optional
 from w3lib.html import remove_tags
+from datetime import datetime, timedelta
+import json
 
 from models import SearchKey, SearchResult, Category, Tag, Author, Article, ArticleAuthor, ArticleTag, SearchResultArticle
 from ..items import SearchResultItem, ArticleItem
@@ -17,18 +19,61 @@ class TechSpiderSpider(scrapy.Spider):
         self.search_url = 'https://search.techcrunch.com/search?p='
         self.result_per_page = 10
         self.pages_to_scrape = 1
-        self.type = 'user'
+        self.type = ''
         # self.search_key =''
 
     def start_requests(self):
         search_key = getattr(self, 'search_key', None)
         if search_key:
-            # Inser into SearchKey
-            new_search = SearchKey.create(search_key=search_key)
-            search_id = new_search.id
+            self.type = 'user'
+            search_id = self.store_searchkey(search_key)
 
             url = self.search_url + search_key
             yield scrapy.Request(url, callback=self.find_pages, cb_kwargs={'search_id': search_id})
+        else:
+            self.type = 'system'
+            # Calculate yesterday
+            one_day_ago = datetime.now() - timedelta(days=1)
+            date = one_day_ago.strftime("%Y-%m-%d")
+
+            key = 'AUTOMATIC SCHEDULE(System-Generated, every 24 hours at 04:01)'
+            search_id = self.store_searchkey(key)
+            # url = self.base_url + formatted_date
+            
+            url = f'{self.base_url}wp-json/wp/v2/posts?after={date}T00:00:00&before={date}T24:00:00&orderby=date&order=desc&page=1&_embed=true&_envelope=true'
+            yield scrapy.Request(url, callback=self.parse_by_date, cb_kwargs={'search_id': search_id, 'date': date, 'i': 1})
+
+    def parse_by_date(self, response, search_id, date, i):
+        data = json.loads(response.body)
+        if data['status'] != 400:            
+            for j in range(len(data['body'])):
+                item = SearchResultItem()
+                item['search_id'] = search_id
+                tmp = data['body'][j]['yoast_head_json']['og_title']
+                tmp = tmp.replace("| TechCrunch",'')
+                item['title'] = tmp # data['body'][j]['title']['rendered']
+                tmp = str(data['body'][j]['excerpt']['rendered'])
+                tmp = tmp.replace('<p>','')
+                item['description'] = tmp[:200]
+                item['article_url'] = data['body'][j]['yoast_head_json']['og_url'] 
+                # Format the datetime as "Month Day, Year"
+                tmp = data['body'][j]['yoast_head_json']['article_published_time'] 
+                dt = datetime.strptime(tmp, "%Y-%m-%dT%H:%M:%S+00:00")
+                formatted_date = dt.strftime("%B %d, %Y")
+                item['publish_date'] = formatted_date
+                item['pic_url'] = data['body'][j]['jetpack_featured_media_url']
+                item['authors'] = data['body'][j]['yoast_head_json']['author']  
+                item['search_type'] = self.type
+
+                result_id = self.store_searchresult(item)
+
+                yield item
+
+                yield scrapy.Request(item['article_url'], self.parse_article, cb_kwargs={'result_id': result_id})
+
+            i += 1
+            url = f'{self.base_url}wp-json/wp/v2/posts?after={date}T00:00:00&before={date}T24:00:00&orderby=date&order=desc&page={i}&_embed=true&_envelope=true'
+            yield scrapy.Request(url, callback=self.parse_by_date, cb_kwargs={'search_id': search_id, 'date': date, 'i': i})
 
     def find_pages(self, response, search_id):
         # Finding number of results
@@ -57,7 +102,8 @@ class TechSpiderSpider(scrapy.Spider):
                 item['search_id'] = search_id
                 item['pic_url'] = li.css('a.thmb::attr(href)').get()
                 authors = remove_tags(li.css('span.mr-15').get()).strip()
-                item['authors'] = authors.removeprefix('By ').replace(' and', ',')
+                item['authors'] = authors.removeprefix(
+                    'By ').replace(' and', ',')
                 item['publish_date'] = li.css('span.pl-15::text').get()
                 item['title'] = remove_tags(li.css('h4 a').get())
                 item['article_url'] = li.css('h4 a::attr(href)').get()
@@ -107,7 +153,7 @@ class TechSpiderSpider(scrapy.Spider):
         item['category'] = category.id
 
         yield item
-            
+
         try:
             Article.get(Article.id == item['id'])
         except Article.DoesNotExist:
@@ -136,6 +182,11 @@ class TechSpiderSpider(scrapy.Spider):
         finally:
             SearchResultArticle.create(
                 article_id=item['id'], searchresult_id=result_id)
+
+    def store_searchkey(self, key):
+        # Insert into SearchKey
+        new_search = SearchKey.create(search_key=key)
+        return new_search.id
 
     def store_searchresult(self, item):
         new_search_result = SearchResult.create(

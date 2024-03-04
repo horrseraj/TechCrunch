@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-s","Submit a guest column to Extra Crunch (and TechCrunch)", "-f", "json"] ,
+            // "args": ["-s","Submit a guest column extra", "-f", "json"] ,
             "env": {
                 "DUPEFILTER_DEBUG": "0"
             }

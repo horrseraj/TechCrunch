@@ -92,7 +92,8 @@ class Article(peewee.Model):
     description = peewee.TextField(null=True, verbose_name='Description')
     publish_time = peewee.TextField(null=True, verbose_name='PublishTime')
     pic_url = peewee.TextField(null=True, verbose_name='PicUrl')
-    reading_time = peewee.CharField(max_length=50, null=True, verbose_name='ReadingTime')
+    reading_time = peewee.CharField(
+        max_length=50, null=True, verbose_name='ReadingTime')
     category = peewee.ForeignKeyField(
         Category, backref='articles', on_delete='CASCADE')
     html = peewee.TextField(null=True, verbose_name='HTML')
@@ -116,7 +117,7 @@ class ArticleTag(peewee.Model):
     article_id = peewee.ForeignKeyField(
         Article, backref='tags', on_delete='CASCADE')
     tag_id = peewee.ForeignKeyField(
-        SearchResult, backref='articles', on_delete='CASCADE')
+        Tag, backref='articles', on_delete='CASCADE')
 
     class Meta:
         database = database_manager.db
