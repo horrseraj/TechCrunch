@@ -1,18 +1,19 @@
-import celery
+from celery import Celery, shared_task
+from celery.schedules import crontab
 import argparse
 from datetime import datetime, timedelta
 import time
 import os
 import sys
 import shutil
+import logging
 
 from scrapy.crawler import CrawlerProcess
 from techcrunch_scraper.spiders.tech_spider import TechSpiderSpider
 from models import SearchKey, SearchResult, Category, Tag, Author, Article, ArticleAuthor, ArticleTag, SearchResultArticle
 from database_manager import DatabaseManager
 import local_settings
-
-app = celery('tasks', broker='redis://localhost:6379/0')
+# from techcrunch_scraper.celery import crawl
 
 database_manager = DatabaseManager(
     database_name=local_settings.DATABASE['name'],
@@ -23,7 +24,25 @@ database_manager = DatabaseManager(
 )
 
 
-def run_spider(key, format, path):
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+app = Celery('tasks', broker='redis://localhost:6379',
+             backend='redis://localhost:6379')
+app.conf.beat_schedule = {
+    'my-periodic-task': {
+        'task': 'tasks.crawl',
+        'schedule': crontab(minute='*'),
+    },
+}
+
+# @app.task
+
+@shared_task()
+def crawl(key, format):
+    print('in Crawl')
+    logger.debug('in Crawl')
+    path = before_crawl(key)
+
     output_filename = f'{path}/output.{format}'
     process = CrawlerProcess(
         settings={
@@ -31,18 +50,13 @@ def run_spider(key, format, path):
             'FEED_URI': output_filename,
         }
     )
+
     process.crawl(TechSpiderSpider, search_key=key)
     process.start()
+    logger.info('after Crawl')
 
-
-def validate_arguments(args):
-    # if not args.key:
-    #     print("Error: Search key is missing.")
-    #     sys.exit(1)
-    if not os.path.exists('./output'):
-        os.makedirs('./output')
-    if not os.path.exists('./downloaded'):
-        os.makedirs('./downloaded')
+    after_crawl(path)
+    return path
 
 
 def before_crawl(key):
@@ -51,33 +65,13 @@ def before_crawl(key):
     os.makedirs(path)
     return path
 
-@app.task
-def crawl(key, format):
-    path = before_crawl(key)
-    output_filename = f'{path}/output.{format}'
-    process = CrawlerProcess(
-        settings={
-            'FEED_FORMAT': format,
-            'FEED_URI': output_filename,
-        }
-    )
-    process.crawl(TechSpiderSpider, search_key=key)
-    process.start()
-    
-    after_crawl(path)
-
-
-def schedule_crawl():
-    current_time = datetime.now()
-    scheduled_time = current_time.replace(hour=4, minute=1, second=0, microsecond=0)
-    if current_time.hour >= 4:
-        scheduled_time += timedelta(days=1)
-    print(f'Scheduled Crawling task for {scheduled_time}')
-    crawl.apply_async(args.key, args.format, eta = scheduled_time)
     # key = ''
     # path = before_crawl(key)
     # run_spider(key, args.format, path)
     # after_crawl(path)
+    # import multiprocessing as mp
+    # pool = mp.Pool()
+    # pool.apply_async(crawl,args[args.key, args.format],eta=scheduled_time)
 
 
 def after_crawl(path):
@@ -91,6 +85,43 @@ def after_crawl(path):
     # zip folder
     shutil.make_archive(path, 'zip', path)
     print(path)
+
+
+def schedule_crawl():
+    current_time = datetime.now()
+    scheduled_time = current_time.replace(
+        hour=1, minute=59, second=0, microsecond=0)
+    if current_time.hour >= 20:
+        scheduled_time += timedelta(days=1)
+    print(f'Scheduled Crawling task for {scheduled_time}')
+    result = crawl.apply_async(
+        args=[args.key, args.format], eta=scheduled_time)
+    while not result.ready():
+        time.sleep(1)
+        print("Waiting for task to complete...")
+    print("Crawling task completed.")
+
+
+def validate_arguments(args):
+    # if not args.key:
+    #     print("Error: Search key is missing.")
+    #     sys.exit(1)
+    if not os.path.exists('./output'):
+        os.makedirs('./output')
+    if not os.path.exists('./downloaded'):
+        os.makedirs('./downloaded')
+
+
+def run_spider(key, format, path):
+    output_filename = f'{path}/output.{format}'
+    process = CrawlerProcess(
+        settings={
+            'FEED_FORMAT': format,
+            'FEED_URI': output_filename,
+        }
+    )
+    process.crawl(TechSpiderSpider, search_key=key)
+    process.start()
 
 
 if __name__ == "__main__":
@@ -107,13 +138,16 @@ if __name__ == "__main__":
         database_manager.create_tables(
             models=[SearchKey, SearchResult, Category, Tag, Author, Article,
                     ArticleAuthor, ArticleTag, SearchResultArticle])
-        if args.key:
-            # path = before_crawl(args.key)
-            # run_spider(args.key, args.format, path)
-            # after_crawl(path)
-            crawl(args.key, args.format)
-        else:
-            schedule_crawl()
+        # if args.key:
+        path = before_crawl(args.key)
+        run_spider(args.key, args.format, path)
+        after_crawl(path)
+        # print('1')
+        # r= crawl.delay(args.key, args.format) # delay() adds the task to celery queue for execution
+        # print(r)
+        # print('2')
+        # else:
+        #     schedule_crawl()
 
     except OSError as e:
         print(f"Error: Failed to create output directory: {e}")

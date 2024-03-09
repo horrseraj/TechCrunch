@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true,
+            "justMyCode": false,
             // "args": ["-s","Submit a guest column extra", "-f", "json"] ,
             "env": {
                 "DUPEFILTER_DEBUG": "0"
